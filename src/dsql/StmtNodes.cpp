@@ -869,12 +869,11 @@ BulkInsertNode* BulkInsertNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 	tail.csb_flags |= csb_store;
 
 	jrd_rel* const relation = tail.csb_relation(tdbb);
-	if (relation)
-	{
-		pass1Update(tdbb, csb, relation,
-			relation->rel_triggers[TRIGGER_PRE_STORE],	// unused inside pass1Update
-			stream, stream, SCL_insert, nullptr, 0, 0);
-	}
+	fb_assert(relation);
+
+	pass1Update(tdbb, csb, relation,
+		relation->rel_triggers[TRIGGER_PRE_STORE],	// unused inside pass1Update
+		stream, stream, SCL_insert, nullptr, 0, 0);
 
 	return this;
 }
@@ -961,12 +960,9 @@ void BulkInsertNode::fromCursor(thread_db* tdbb, Request* request) const
 		record->setTransactionNumber(transaction->tra_number);
 
 		assignValues(tdbb, request, relation, record, toDescs.begin());
-		cleanupRpb(tdbb, rpb);
 
 		bulk->putRecord(tdbb, rpb, transaction);
 		REPL_store(tdbb, rpb, transaction);
-
-		JRD_reschedule(tdbb);
 	}
 
 	transaction->finiBulkInsert(tdbb, true);
@@ -993,21 +989,19 @@ void BulkInsertNode::fromMessage(thread_db* tdbb, Request* request) const
 	record->nullify();
 	record->setTransactionNumber(transaction->tra_number);
 
-	if (!(impure->flags & INIT_DONE))
+	if (!impure->descs)
 	{
 		RLCK_reserve_relation(tdbb, transaction, relation->getPermanent(), true);
 
 		auto compound = nodeAs<CompoundStmtNode>(statement);
 		const auto count = compound->statements.getCount();
 
-		impure->flags = INIT_DONE;
 		impure->descs = FB_NEW_POOL(*request->req_pool) Array<dsc>(*request->req_pool, count);
 
 		prepareTarget(tdbb, request, impure->descs->getBuffer(count));
 	}
 	auto bulk = transaction->getBulkInsert(tdbb, relation, true);
 	assignValues(tdbb, request, relation, record, impure->descs->begin());
-	cleanupRpb(tdbb, rpb);
 
 	bulk->putRecord(tdbb, rpb, transaction);
 	REPL_store(tdbb, rpb, transaction);
@@ -1072,7 +1066,7 @@ void BulkInsertNode::assignValues(thread_db* tdbb, Request* request, jrd_rel* re
 				ERR_post(Arg::Gds(isc_not_valid) << Arg::Str(name) << Arg::Str(NULL_STRING_MARK));
 			}
 
-			record->setNull(toField->fieldId);
+			fb_assert(record->isNull(toField->fieldId));
 			to_desc->dsc_flags |= DSC_null;
 		}
 		else

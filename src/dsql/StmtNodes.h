@@ -207,13 +207,9 @@ public:
 	NestConst<Cursor> cursor = nullptr;					// source cursor
 
 private:
-	// Impure flags
-	static constexpr int INIT_DONE = 0x01;
-
 	struct Impure
 	{
 		Firebird::Array<dsc>* descs;
-		int flags;
 	};
 
 	void fromCursor(thread_db* tdbb, Request* request) const;
