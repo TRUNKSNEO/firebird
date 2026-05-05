@@ -2201,50 +2201,46 @@ void IndexPermanent::refreshIndexCode(thread_db* tdbb, Cached::Relation* relatio
 		}
 		END_FOR
 
-		if ((expression.hasData() && expression != idp_expression_bid) ||
-			(condition.hasData() && condition != idp_condition_bid))
+		releaseStatements(tdbb);
+
+		idp_expression_bid = expression;
+		idp_condition_bid = condition;
+
+		if (expression.hasData())
 		{
-			releaseStatements(tdbb);
-
-			idp_expression_bid = expression;
-			idp_condition_bid = condition;
-
-			if (expression.hasData())
+			MemoryPool* stmtPool = dbb->createPool();
+			try
 			{
-				MemoryPool* stmtPool = dbb->createPool();
-				try
-				{
-					Jrd::ContextPoolHolder context(tdbb, stmtPool);
+				Jrd::ContextPoolHolder context(tdbb, stmtPool);
 
-					CompilerScratch* csb = nullptr;
-					Cleanup cc([csb]() {delete csb;});
-					MET_parse_blob(tdbb, &relation->getName().schema, relation, &expression, &csb, nullptr, false, false);
-					idp_expression_statement = Statement::makeValueExpression(tdbb, idp_expression, idp_expression_desc, csb, false);
-				}
-				catch (const Exception&)
-				{
-					dbb->deletePool(stmtPool);
-					throw;
-				}
+				CompilerScratch* csb = nullptr;
+				Cleanup cc([csb]() {delete csb;});
+				MET_parse_blob(tdbb, &relation->getName().schema, relation, &expression, &csb, nullptr, false, false);
+				idp_expression_statement = Statement::makeValueExpression(tdbb, idp_expression, idp_expression_desc, csb, false);
 			}
-
-			if (condition.hasData())
+			catch (const Exception&)
 			{
-				MemoryPool* stmtPool = dbb->createPool();
-				try
-				{
-					Jrd::ContextPoolHolder context(tdbb, stmtPool);
+				dbb->deletePool(stmtPool);
+				throw;
+			}
+		}
 
-					CompilerScratch* csb = nullptr;
-					Cleanup cc([csb]() {delete csb;});
-					MET_parse_blob(tdbb, &relation->getName().schema, relation, &condition, &csb, nullptr, false, false);
-					idp_condition_statement = Statement::makeBoolExpression(tdbb, idp_condition, csb, false);
-				}
-				catch (const Exception&)
-				{
-					dbb->deletePool(stmtPool);
-					throw;
-				}
+		if (condition.hasData())
+		{
+			MemoryPool* stmtPool = dbb->createPool();
+			try
+			{
+				Jrd::ContextPoolHolder context(tdbb, stmtPool);
+
+				CompilerScratch* csb = nullptr;
+				Cleanup cc([csb]() {delete csb;});
+				MET_parse_blob(tdbb, &relation->getName().schema, relation, &condition, &csb, nullptr, false, false);
+				idp_condition_statement = Statement::makeBoolExpression(tdbb, idp_condition, csb, false);
+			}
+			catch (const Exception&)
+			{
+				dbb->deletePool(stmtPool);
+				throw;
 			}
 		}
 
