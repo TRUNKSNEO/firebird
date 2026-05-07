@@ -8830,7 +8830,7 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, const Qual
 		if (external_flag)
 		{
 			AutoRequest temp;
-			FOR(REQUEST_HANDLE temp) FMTS IN RDB$FORMATS WITH
+			FOR(REQUEST_HANDLE temp TRANSACTION_HANDLE transaction) FMTS IN RDB$FORMATS WITH
 				FMTS.RDB$RELATION_ID EQ relation->getId() AND
 				FMTS.RDB$FORMAT EQ 0
 			{
@@ -11432,19 +11432,9 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 
 		// Now that the data, pointer, and index pages are gone,
 		// get rid of the relation itself
-
-		AutoRequest request2;
-		request2.reset();
-
-		FOR(REQUEST_HANDLE request2 TRANSACTION_HANDLE transaction) X IN RDB$FORMATS WITH
-			X.RDB$RELATION_ID EQ rel->getId()
-		{
-			ERASE X;
-		}
-		END_FOR
-
 		// Here we may drop index records - they can't get cleaned out without relation record
 
+		AutoRequest request2;
 		request2.reset();
 
 		FOR(REQUEST_HANDLE request2 TRANSACTION_HANDLE transaction)

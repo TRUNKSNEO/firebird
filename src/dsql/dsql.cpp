@@ -1363,7 +1363,7 @@ dsql_rel::dsql_rel(MemoryPool& p, jrd_rel* jrel)
 		return;
 
 	auto* format = jrel->currentFormat(nullptr);
-	fb_assert(format->fmt_count == jrel->rel_fields->count());
+	fb_assert(format && (format->fmt_count == jrel->rel_fields->count()));
 
 	for (MetaId id = 0; id < format->fmt_count; ++id)
 	{
