@@ -44,7 +44,6 @@ class RecordBuffer;
 class RelationSourceNode;
 class SelectNode;
 class GeneratorItem;
-class BulkInsert;
 
 
 class ExceptionItem final : public Firebird::PermanentStorage, public Printable

@@ -2488,9 +2488,6 @@ RecordNumber DPM_store_blob(thread_db* tdbb, blb* blob, jrd_rel* relation, Recor
 	rpb.rpb_transaction_nr = tdbb->getTransaction()->tra_number;
 	rpb.rpb_flags = rpb_blob;
 
-	if (blob->blb_flags & BLB_bulk)
-		rpb.rpb_stream_flags |= RPB_s_bulk;
-
 	blh* header = (blh*) locate_space(tdbb, &rpb, (SSHORT) (BLH_SIZE + length),
 									  stack, record, DPM_other);
 	header->blh_flags = rhd_blob;
@@ -3691,17 +3688,9 @@ static rhd* locate_space(thread_db* tdbb,
 	ULONG pp_sequence =
 		(type == DPM_primary ? relPages->rel_pri_data_space : relPages->rel_sec_data_space);
 
-	const bool bulkInsert = (type == DPM_primary || isBlob) && (rpb->rpb_stream_flags & RPB_s_bulk);
-
 	for (;; pp_sequence++)
 	{
-		// Bulk inserts looks up for empty DP only to avoid contention with
-		// another attachments doing bulk inserts. Note, DP number is saved in
-		// relPages->rel_last_free_pri_dp and next insert by same attachment
-		// will use same DP while concurrent bulk attachments will ignore it as
-		// non-empty. Take write lock on PP early to clear 'empty' flag.
-
-		locklevel_t ppLock = bulkInsert ? LCK_write : LCK_read;
+		locklevel_t ppLock = LCK_read;
 
 		if (type == DPM_primary)
 			relPages->rel_pri_data_space = pp_sequence;
@@ -3744,9 +3733,6 @@ static rhd* locate_space(thread_db* tdbb,
 			// ppg_dp_empty bit. To do it, we need to re-fetch PP with write lock.
 			bool dp_is_empty = PPG_DP_BIT_TEST(bits, slot, ppg_dp_empty);
 			bool dp_is_secondary = PPG_DP_BIT_TEST(bits, slot, ppg_dp_secondary);
-
-			if (bulkInsert && !dp_is_empty)
-				continue;
 
 			if (dp_is_empty)
 			{

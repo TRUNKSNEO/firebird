@@ -1264,12 +1264,7 @@ void blb::move(thread_db* tdbb, dsc* from_desc, dsc* to_desc,
 	if (bulkInsert)
 		destination->set_permanent(relation->getId(), bulkInsert->putBlob(tdbb, blob, record));
 	else
-	{
-		if (bulk)
-			blob->blb_flags |= BLB_bulk;
-
 		destination->set_permanent(relation->getId(), DPM_store_blob(tdbb, blob, relation, record));
-	}
 
 	// This is the only place in the engine where blobs are materialized
 	// If new places appear code below should transform to common sub-routine
