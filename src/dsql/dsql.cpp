@@ -1395,6 +1395,11 @@ dsql_rel::dsql_rel(MemoryPool& p, jrd_rel* jrel)
 			fld->elementDtype = array->arr_desc.iad_rpt[0].iad_desc.dsc_dtype;
 			fld->elementLength = array->arr_desc.iad_element_length;
 			fld->dimensions = array->arr_desc.iad_dimensions;
+
+			dsc tmp(array->arr_desc.iad_rpt[0].iad_desc);
+			fld->collationId = tmp.getCollation();
+			fld->textType = tmp.getTextType();
+			fld->charSetId = tmp.getCharSet();
 		}
 
 		auto** iter = &rel_fields;
