@@ -138,10 +138,7 @@
 #define blr_minimum		(unsigned char)30
 #define blr_total		(unsigned char)31
 #define blr_receive_batch	(unsigned char)32
-
-// unused code: 33
 #define blr_bulk_insert	(unsigned char)33
-
 #define blr_add			(unsigned char)34
 #define blr_subtract		(unsigned char)35
 #define blr_multiply		(unsigned char)36

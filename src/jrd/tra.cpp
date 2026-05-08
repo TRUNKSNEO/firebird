@@ -4244,10 +4244,13 @@ BulkInsert* jrd_tra::getBulkInsert(thread_db* tdbb, jrd_rel* relation, bool crea
 	return tra_bulkInsert;
 }
 
-void jrd_tra::finiBulkInsert(thread_db* tdbb, bool commit)
+void jrd_tra::finiBulkInsert(thread_db* tdbb, bool /*commit*/)
 {
 	if (tra_bulkInsert)
 	{
+		// Currently, there is no way to explicitly undo bulk insert actions, while it
+		// might be implemented later if needed. Thus "commit" arg is not used for now.
+
 		tra_bulkInsert->flush(tdbb);
 
 		delete tra_bulkInsert;
