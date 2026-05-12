@@ -163,6 +163,7 @@ void PackageItemsHolder::drop(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 {
 	dropItems<DropFunctionNode>(tdbb, dsqlScratch, packageAndSchema, functions);
 	dropItems<DropProcedureNode>(tdbb, dsqlScratch, packageAndSchema, procedures);
+	dropItems<DropRelationNode>(tdbb, dsqlScratch, packageAndSchema, tables);
 	dropItems<DropConstantNode>(tdbb, dsqlScratch, packageAndSchema, constants);
 }
 
@@ -334,12 +335,26 @@ void PackageItemsHolder::collectPackagedItems(thread_db* tdbb, jrd_tra* transact
 		}
 		END_FOR
 	}
+
+	static const CachedRequestId requestTableCacheId;
+	AutoCacheRequest requestTable(tdbb, requestTableCacheId);
+
+	FOR (REQUEST_HANDLE requestTable TRANSACTION_HANDLE transaction)
+		REL IN RDB$RELATIONS
+		WITH REL.RDB$SCHEMA_NAME EQ packageName.schema.c_str() AND
+			 REL.RDB$PACKAGE_NAME EQ packageName.object.c_str()
+	{
+		Signature table(REL.RDB$RELATION_NAME);
+		tables.add(table);
+	}
+	END_FOR
 }
 
 void PackageItemsHolder::clear()
 {
 	functions.clear();
 	procedures.clear();
+	tables.clear();
 	constants.clear();
 }
 
@@ -826,6 +841,7 @@ string CreateAlterPackageNode::internalPrint(NodePrinter& printer) const
 	//// FIXME-PRINT: NODE_PRINT(printer, items);
 	NODE_PRINT(printer, functionNames);
 	NODE_PRINT(printer, procedureNames);
+	NODE_PRINT(printer, tableNames);
 	NODE_PRINT(printer, constantNames);
 
 	return "CreateAlterPackageNode";
@@ -874,11 +890,25 @@ DdlNode* CreateAlterPackageNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 				CreateAlterProcedureNode* const proc = (*items)[i].procedure;
 				ddlNode = proc;
 
+				tableNames.checkDuplicate<PackageItemType::PROCEDURE>(proc->name);
 				procedureNames.addName<PackageItemType::PROCEDURE>(proc->name);
 
 				proc->alter = true;
 				proc->name.schema = name.schema;
 				proc->name.package = name.object;
+				break;
+			}
+
+			case PackageItemType::TABLE:
+			{
+				CreateRelationNode* const table = (*items)[i].table;
+				ddlNode = table;
+
+				procedureNames.checkDuplicate<PackageItemType::TABLE>(table->name);
+				tableNames.addName<PackageItemType::TABLE>(table->name);
+
+				table->name.schema = name.schema;
+				table->name.package = name.object;
 				break;
 			}
 
@@ -1091,6 +1121,7 @@ bool CreateAlterPackageNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch* 
 		dropMissingItems<DropFunctionNode>(tdbb, dsqlScratch, name, existingItems.functions, functionNames);
 		dropMissingItems<DropProcedureNode>(tdbb, dsqlScratch, name, existingItems.procedures, procedureNames);
 		dropMissingItems<DropConstantNode>(tdbb, dsqlScratch, name, existingItems.constants, constantNames);
+		dropItems<DropRelationNode>(tdbb, dsqlScratch, name, existingItems.tables);
 
 		MODIFY PKG
 			PKG.RDB$PACKAGE_HEADER_SOURCE.NULL = FALSE;
@@ -1181,6 +1212,11 @@ void CreateAlterPackageNode::executeItems(thread_db* tdbb, DsqlCompilerScratch* 
 				(*items)[i].procedure->packageOwner = owner;
 				(*items)[i].procedure->executeDdl(tdbb, (*items)[i].dsqlScratch, transaction, true);
 				break;
+
+			case PackageItemType::TABLE:
+				(*items)[i].table->executeDdl(tdbb, (*items)[i].dsqlScratch, transaction, true);
+				break;
+
 			case PackageItemType::CONSTANT:
 				(*items)[i].constant->package = package;
 				(*items)[i].constant->executeDdl(tdbb, (*items)[i].dsqlScratch, transaction, true);
@@ -1342,6 +1378,8 @@ DdlNode* CreatePackageBodyNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 				{
 					CreateAlterProcedureNode* const proc = (*arrays[i])[j].procedure;
 					ddlNode = proc;
+
+					names[i].tables.checkDuplicate<PackageItemType::PROCEDURE>(proc->name);
 					names[i].procedures.addName<PackageItemType::PROCEDURE>(proc->name);
 
 					proc->name.schema = name.schema;
@@ -1350,6 +1388,20 @@ DdlNode* CreatePackageBodyNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 
 					if (arrays[i] == items)
 						proc->alter = true;
+
+					break;
+				}
+
+				case PackageItemType::TABLE:
+				{
+					CreateRelationNode* const table = (*arrays[i])[j].table;
+					ddlNode = table;
+
+					names[i].procedures.checkDuplicate<PackageItemType::TABLE>(table->name);
+					names[i].tables.addName<PackageItemType::TABLE>(table->name);
+
+					table->name.schema = name.schema;
+					table->name.package = name.object;
 
 					break;
 				}
@@ -1458,6 +1510,20 @@ void CreatePackageBodyNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlSc
 			Arg::Gds(isc_dyn_package_not_found) << name.toQuotedString());
 	}
 
+	static const CachedRequestId requestTableCacheId;
+	AutoCacheRequest requestTable(tdbb, requestTableCacheId);
+
+	FOR (REQUEST_HANDLE requestTable TRANSACTION_HANDLE transaction)
+		REL IN RDB$RELATIONS
+		WITH REL.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
+			 REL.RDB$PACKAGE_NAME EQ name.object.c_str() AND
+			 REL.RDB$PRIVATE_FLAG != 0
+	{
+		dropItem<DropRelationNode>(tdbb, dsqlScratch,
+			QualifiedName(REL.RDB$RELATION_NAME, name.schema, name.object));
+	}
+	END_FOR
+
 	PackageItemsHolder headerItems(pool);
 	headerItems.collectPackagedItems(tdbb, transaction, name, false, true);
 
@@ -1489,7 +1555,7 @@ void CreatePackageBodyNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlSc
 					CreateAlterFunctionNode* func = elem.function;
 
 					if (arrays[i] == items)
-						func->privateScope = !headerItems.functions.exist(Signature(func->name.object));
+						func->packagePrivate = !headerItems.functions.exist(Signature(func->name.object));
 					else
 					{
 						existingItems.functions.checkDuplicate<PackageItemType::FUNCTION>(func->name);
@@ -1507,16 +1573,57 @@ void CreatePackageBodyNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlSc
 					CreateAlterProcedureNode* proc = elem.procedure;
 
 					if (arrays[i] == items)
-						proc->privateScope = !headerItems.procedures.exist(Signature(proc->name.object));
+					{
+						if (headerItems.tables.exist(Signature(proc->name.object)))
+							headerItems.tables.checkDuplicate<PackageItemType::PROCEDURE>(proc->name);
+						else if (existingItems.tables.exist(Signature(proc->name.object)))
+							existingItems.tables.checkDuplicate<PackageItemType::PROCEDURE>(proc->name);
+
+						proc->packagePrivate = !headerItems.procedures.exist(Signature(proc->name.object));
+					}
 					else
 					{
 						existingItems.procedures.checkDuplicate<PackageItemType::PROCEDURE>(proc->name);
+
+						if (headerItems.tables.exist(Signature(proc->name.object)))
+							headerItems.tables.checkDuplicate<PackageItemType::PROCEDURE>(proc->name);
+						else if (existingItems.tables.exist(Signature(proc->name.object)))
+							existingItems.tables.checkDuplicate<PackageItemType::PROCEDURE>(proc->name);
 					}
 
 					proc->packageOwner = owner;
 					proc->preserveDefaults =
 						existingItems.procedures.exist(Signature(proc->name.object)) && arrays[i] == items;
 					proc->executeDdl(tdbb, elem.dsqlScratch, transaction, true);
+					break;
+				}
+
+				case PackageItemType::TABLE:
+				{
+					CreateRelationNode* table = elem.table;
+
+					if (arrays[i] == items)
+					{
+						if (headerItems.procedures.exist(Signature(table->name.object)))
+							headerItems.procedures.checkDuplicate<PackageItemType::TABLE>(table->name);
+						else if (existingItems.procedures.exist(Signature(table->name.object)))
+							existingItems.procedures.checkDuplicate<PackageItemType::TABLE>(table->name);
+
+						table->packagePrivate = !headerItems.tables.exist(Signature(table->name.object));
+					}
+					else
+					{
+						existingItems.tables.checkDuplicate<PackageItemType::TABLE>(table->name);
+
+						if (headerItems.procedures.exist(Signature(table->name.object)))
+							headerItems.procedures.checkDuplicate<PackageItemType::TABLE>(table->name);
+						else if (existingItems.procedures.exist(Signature(table->name.object)))
+							existingItems.procedures.checkDuplicate<PackageItemType::TABLE>(table->name);
+
+						table->packagePrivate = true;
+					}
+
+					table->executeDdl(tdbb, elem.dsqlScratch, transaction, true);
 					break;
 				}
 
@@ -1665,6 +1772,20 @@ void DropPackageBodyNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 				PRC.RDB$ENTRYPOINT.NULL = TRUE;
 			END_MODIFY
 		}
+	}
+	END_FOR
+
+	static const CachedRequestId requestTableCacheId;
+	AutoCacheRequest requestTable(tdbb, requestTableCacheId);
+
+	FOR (REQUEST_HANDLE requestTable TRANSACTION_HANDLE transaction)
+		REL IN RDB$RELATIONS
+		WITH REL.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
+			 REL.RDB$PACKAGE_NAME EQ name.object.c_str() AND
+			 REL.RDB$PRIVATE_FLAG != 0
+	{
+		dropItem<DropRelationNode>(tdbb, dsqlScratch,
+			QualifiedName(REL.RDB$RELATION_NAME, name.schema, name.object));
 	}
 	END_FOR
 

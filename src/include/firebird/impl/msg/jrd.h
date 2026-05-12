@@ -1014,3 +1014,4 @@ FB_IMPL_MSG(JRD, 1011, bad_constant_name, -901, "2F", "000", "Constant @1 cannot
 FB_IMPL_MSG(JRD, 1012, bad_constant_type, -901, "2F", "000", "@1 is not supported to be a constant type")
 FB_IMPL_MSG(JRD, 1013, not_defined_constant, -901, "42", "000", "The constant @1 is not defined")
 FB_IMPL_MSG(JRD, 1014, const_name, -901, "42", "000", "CONSTANT @1")
+FB_IMPL_MSG(JRD, 1015, private_table, -901, "42", "000", "Table @1 is private to package @2")

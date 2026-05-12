@@ -34,6 +34,7 @@ enum class PackageItemType : USHORT
 {
 	FUNCTION = 0,
 	PROCEDURE,
+	TABLE,
 	CONSTANT,
 	META_SIZE
 };
@@ -82,6 +83,7 @@ public:
 			static const std::array<const char*, size_t(PackageItemType::META_SIZE)> names{
 				"FUNCTION",
 				"PROCEDURE",
+				"TABLE",
 				"CONSTANT",
 			};
 
@@ -101,6 +103,7 @@ public:
 	PackageItemsHolder(Firebird::MemoryPool& pool) :
 		functions(pool),
 		procedures(pool),
+		tables(pool),
 		constants(pool)
 	{ }
 
@@ -113,6 +116,7 @@ public:
 public:
 	ItemsSignatureArray functions;
 	ItemsSignatureArray procedures;
+	ItemsSignatureArray tables;
 	ItemsSignatureArray constants;
 };
 
@@ -240,6 +244,15 @@ public:
 			return item;
 		}
 
+		static Item create(CreateRelationNode* table)
+		{
+			Item item;
+			item.type = PackageItemType::TABLE;
+			item.table = table;
+			item.dsqlScratch = nullptr;
+			return item;
+		}
+
 		static Item create(CreatePackageConstantNode* constant)
 		{
 			Item item;
@@ -255,6 +268,7 @@ public:
 		{
 			CreateAlterFunctionNode* function;
 			CreateAlterProcedureNode* procedure;
+			CreateRelationNode* table;
 			CreatePackageConstantNode* constant;
 		};
 
@@ -267,12 +281,10 @@ public:
 	CreateAlterPackageNode(MemoryPool& pool, const QualifiedName& aName)
 		: DdlNode(pool),
 		  name(pool, aName),
-		  create(true),
-		  alter(false),
 		  source(pool),
-		  items(NULL),
 		  functionNames(pool),
 		  procedureNames(pool),
+		  tableNames(pool),
 		  constantNames(pool),
 		  owner(pool)
 	{
@@ -302,13 +314,14 @@ private:
 
 public:
 	QualifiedName name;
-	bool create;
-	bool alter;
+	bool create = true;
+	bool alter = false;
 	bool createIfNotExistsOnly = false;
 	Firebird::string source;
-	Firebird::Array<Item>* items;
+	Firebird::Array<Item>* items = nullptr;
 	ItemsNameArray functionNames;
 	ItemsNameArray procedureNames;
+	ItemsNameArray tableNames;
 	ItemsNameArray constantNames;
 	std::optional<SqlSecurity> ssDefiner;
 	MetaId id;
