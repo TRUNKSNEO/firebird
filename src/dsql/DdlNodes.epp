@@ -7100,83 +7100,83 @@ bool RelationNode::deleteLocalField(thread_db* tdbb, jrd_tra* transaction,
 	END_FOR
 
 	if (relationName.package.isEmpty())
-	{	// FIXME: indent
-	// If the column to be dropped is being used as a foreign key
-	// and the column was not part of any compound foreign key,
-	// then we can drop the column. But we have to drop the foreign key
-	// constraint first.
-
-	request.reset(tdbb, drq_g_rel_constr_nm, DYN_REQUESTS);
-
-	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-		IDX IN RDB$INDICES CROSS
-		IDX_SEG IN RDB$INDEX_SEGMENTS CROSS
-		REL_CONST IN RDB$RELATION_CONSTRAINTS
-		WITH IDX.RDB$SCHEMA_NAME EQ relationName.schema.c_str() AND
-			 IDX.RDB$PACKAGE_NAME MISSING AND
-			 IDX.RDB$RELATION_NAME EQ relationName.object.c_str() AND
-			 REL_CONST.RDB$SCHEMA_NAME EQ relationName.schema.c_str() AND
-			 REL_CONST.RDB$RELATION_NAME EQ relationName.object.c_str() AND
-			 IDX_SEG.RDB$FIELD_NAME EQ fieldName.c_str() AND
-			 IDX.RDB$SCHEMA_NAME EQ IDX_SEG.RDB$SCHEMA_NAME AND
-			 IDX_SEG.RDB$PACKAGE_NAME MISSING AND
-			 IDX.RDB$INDEX_NAME EQ IDX_SEG.RDB$INDEX_NAME AND
-			 IDX.RDB$SCHEMA_NAME EQ REL_CONST.RDB$SCHEMA_NAME AND
-			 IDX.RDB$INDEX_NAME EQ REL_CONST.RDB$INDEX_NAME AND
-			 REL_CONST.RDB$CONSTRAINT_TYPE EQ FOREIGN_KEY
 	{
-		executePreChangeHandler();
+		// If the column to be dropped is being used as a foreign key
+		// and the column was not part of any compound foreign key,
+		// then we can drop the column. But we have to drop the foreign key
+		// constraint first.
 
-		if (IDX.RDB$SEGMENT_COUNT == 1)
-			deleteKeyConstraint(tdbb, transaction, relationName, REL_CONST.RDB$CONSTRAINT_NAME, IDX.RDB$INDEX_NAME);
-		else
+		request.reset(tdbb, drq_g_rel_constr_nm, DYN_REQUESTS);
+
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+			IDX IN RDB$INDICES CROSS
+			IDX_SEG IN RDB$INDEX_SEGMENTS CROSS
+			REL_CONST IN RDB$RELATION_CONSTRAINTS
+			WITH IDX.RDB$SCHEMA_NAME EQ relationName.schema.c_str() AND
+				 IDX.RDB$PACKAGE_NAME MISSING AND
+				 IDX.RDB$RELATION_NAME EQ relationName.object.c_str() AND
+				 REL_CONST.RDB$SCHEMA_NAME EQ relationName.schema.c_str() AND
+				 REL_CONST.RDB$RELATION_NAME EQ relationName.object.c_str() AND
+				 IDX_SEG.RDB$FIELD_NAME EQ fieldName.c_str() AND
+				 IDX.RDB$SCHEMA_NAME EQ IDX_SEG.RDB$SCHEMA_NAME AND
+				 IDX_SEG.RDB$PACKAGE_NAME MISSING AND
+				 IDX.RDB$INDEX_NAME EQ IDX_SEG.RDB$INDEX_NAME AND
+				 IDX.RDB$SCHEMA_NAME EQ REL_CONST.RDB$SCHEMA_NAME AND
+				 IDX.RDB$INDEX_NAME EQ REL_CONST.RDB$INDEX_NAME AND
+				 REL_CONST.RDB$CONSTRAINT_TYPE EQ FOREIGN_KEY
 		{
+			executePreChangeHandler();
+
+			if (IDX.RDB$SEGMENT_COUNT == 1)
+				deleteKeyConstraint(tdbb, transaction, relationName, REL_CONST.RDB$CONSTRAINT_NAME, IDX.RDB$INDEX_NAME);
+			else
+			{
+				// msg 187: "field %s from relation %s is referenced in index %s"
+				status_exception::raise(
+					Arg::PrivateDyn(187) <<
+					fieldName.toQuotedString() <<
+					relationName.toQuotedString() <<
+					MetaName(IDX.RDB$INDEX_NAME).toQuotedString());
+			}
+		}
+		END_FOR
+
+		// Make sure that column is not referenced in any user-defined indexes.
+
+		// NOTE: You still could see the system generated indices even though
+		// they were already been deleted when dropping column that was used
+		// as foreign key before "commit".
+
+		request.reset(tdbb, drq_e_l_idx, DYN_REQUESTS);
+
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+			IDX IN RDB$INDICES CROSS
+			IDX_SEG IN RDB$INDEX_SEGMENTS
+			WITH IDX.RDB$SCHEMA_NAME EQ IDX_SEG.RDB$SCHEMA_NAME AND
+				 IDX.RDB$PACKAGE_NAME EQUIV IDX_SEG.RDB$PACKAGE_NAME AND
+				 IDX.RDB$INDEX_NAME EQ IDX_SEG.RDB$INDEX_NAME AND
+				 IDX.RDB$SCHEMA_NAME EQ relationName.schema.c_str() AND
+				 IDX.RDB$PACKAGE_NAME MISSING AND
+				 IDX.RDB$RELATION_NAME EQ relationName.object.c_str() AND
+				 IDX_SEG.RDB$FIELD_NAME EQ fieldName.c_str() AND
+				 (IDX.RDB$INDEX_INACTIVE MISSING OR
+				 	IDX.RDB$INDEX_INACTIVE NE MET_index_deferred_drop) AND
+				 NOT ANY REL_CONST IN RDB$RELATION_CONSTRAINTS
+					WITH REL_CONST.RDB$SCHEMA_NAME EQ IDX.RDB$SCHEMA_NAME AND
+						 REL_CONST.RDB$RELATION_NAME EQ IDX.RDB$RELATION_NAME AND
+						 REL_CONST.RDB$INDEX_NAME EQ IDX.RDB$INDEX_NAME
+		{
+			executePreChangeHandler();
+
 			// msg 187: "field %s from relation %s is referenced in index %s"
 			status_exception::raise(
 				Arg::PrivateDyn(187) <<
-				fieldName.toQuotedString() <<
-				relationName.toQuotedString() <<
-				MetaName(IDX.RDB$INDEX_NAME).toQuotedString());
+					fieldName.toQuotedString() <<
+					relationName.toQuotedString() <<
+					MetaName(IDX.RDB$INDEX_NAME).toQuotedString());
 		}
+		END_FOR
 	}
-	END_FOR
-
-	// Make sure that column is not referenced in any user-defined indexes.
-
-	// NOTE: You still could see the system generated indices even though
-	// they were already been deleted when dropping column that was used
-	// as foreign key before "commit".
-
-	request.reset(tdbb, drq_e_l_idx, DYN_REQUESTS);
-
-	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-		IDX IN RDB$INDICES CROSS
-		IDX_SEG IN RDB$INDEX_SEGMENTS
-		WITH IDX.RDB$SCHEMA_NAME EQ IDX_SEG.RDB$SCHEMA_NAME AND
-			 IDX.RDB$PACKAGE_NAME EQUIV IDX_SEG.RDB$PACKAGE_NAME AND
-			 IDX.RDB$INDEX_NAME EQ IDX_SEG.RDB$INDEX_NAME AND
-			 IDX.RDB$SCHEMA_NAME EQ relationName.schema.c_str() AND
-			 IDX.RDB$PACKAGE_NAME MISSING AND
-			 IDX.RDB$RELATION_NAME EQ relationName.object.c_str() AND
-			 IDX_SEG.RDB$FIELD_NAME EQ fieldName.c_str() AND
-			 (IDX.RDB$INDEX_INACTIVE MISSING OR
-			 	IDX.RDB$INDEX_INACTIVE NE MET_index_deferred_drop) AND
-			 NOT ANY REL_CONST IN RDB$RELATION_CONSTRAINTS
-				WITH REL_CONST.RDB$SCHEMA_NAME EQ IDX.RDB$SCHEMA_NAME AND
-					 REL_CONST.RDB$RELATION_NAME EQ IDX.RDB$RELATION_NAME AND
-					 REL_CONST.RDB$INDEX_NAME EQ IDX.RDB$INDEX_NAME
-	{
-		executePreChangeHandler();
-
-		// msg 187: "field %s from relation %s is referenced in index %s"
-		status_exception::raise(
-			Arg::PrivateDyn(187) <<
-				fieldName.toQuotedString() <<
-				relationName.toQuotedString() <<
-				MetaName(IDX.RDB$INDEX_NAME).toQuotedString());
-	}
-	END_FOR
-	}	// FIXME: indent end
 
 	// Delete the automatically created generator for Identity columns.
 
@@ -11431,46 +11431,46 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	END_FOR
 
 	if (name.package.isEmpty())
-	{	// FIXME: indent
-	request.reset(tdbb, drq_e_trg_msgs2, DYN_REQUESTS);
-
-	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-		TM IN RDB$TRIGGER_MESSAGES
-		CROSS T IN RDB$TRIGGERS
-		WITH T.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
-			 T.RDB$RELATION_NAME EQ name.object.c_str() AND
-			 TM.RDB$SCHEMA_NAME EQ T.RDB$SCHEMA_NAME AND
-			 TM.RDB$TRIGGER_NAME EQ T.RDB$TRIGGER_NAME
 	{
-		ERASE TM;
+		request.reset(tdbb, drq_e_trg_msgs2, DYN_REQUESTS);
+
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+			TM IN RDB$TRIGGER_MESSAGES
+			CROSS T IN RDB$TRIGGERS
+			WITH T.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
+				 T.RDB$RELATION_NAME EQ name.object.c_str() AND
+				 TM.RDB$SCHEMA_NAME EQ T.RDB$SCHEMA_NAME AND
+				 TM.RDB$TRIGGER_NAME EQ T.RDB$TRIGGER_NAME
+		{
+			ERASE TM;
+		}
+		END_FOR
+
+		// CVC: Moved this block here to avoid SF Bug #1111570.
+		request.reset(tdbb, drq_e_rel_con3, DYN_REQUESTS);
+
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+			CRT IN RDB$RELATION_CONSTRAINTS
+			WITH CRT.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
+				 CRT.RDB$RELATION_NAME EQ name.object.c_str() AND
+				 (CRT.RDB$CONSTRAINT_TYPE EQ CHECK_CNSTRT OR
+				  CRT.RDB$CONSTRAINT_TYPE EQ NOT_NULL_CNSTRT)
+		{
+			ERASE CRT;
+		}
+		END_FOR
+
+		request.reset(tdbb, drq_e_view_rels, DYN_REQUESTS);
+
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+			VR IN RDB$VIEW_RELATIONS
+			WITH VR.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
+				 VR.RDB$VIEW_NAME EQ name.object.c_str()
+		{
+			ERASE VR;
+		}
+		END_FOR
 	}
-	END_FOR
-
-	// CVC: Moved this block here to avoid SF Bug #1111570.
-	request.reset(tdbb, drq_e_rel_con3, DYN_REQUESTS);
-
-	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-		CRT IN RDB$RELATION_CONSTRAINTS
-		WITH CRT.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
-			 CRT.RDB$RELATION_NAME EQ name.object.c_str() AND
-			 (CRT.RDB$CONSTRAINT_TYPE EQ CHECK_CNSTRT OR
-			  CRT.RDB$CONSTRAINT_TYPE EQ NOT_NULL_CNSTRT)
-	{
-		ERASE CRT;
-	}
-	END_FOR
-
-	request.reset(tdbb, drq_e_view_rels, DYN_REQUESTS);
-
-	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-		VR IN RDB$VIEW_RELATIONS
-		WITH VR.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
-			 VR.RDB$VIEW_NAME EQ name.object.c_str()
-	{
-		ERASE VR;
-	}
-	END_FOR
-	}	// FIXME: indent end
 
 	request.reset(tdbb, drq_e_relation, DYN_REQUESTS);
 
@@ -11491,64 +11491,64 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	END_FOR
 
 	if (name.package.isEmpty())
-	{	// FIXME: indent
-	// Triggers must be deleted after check constraints
-
-	QualifiedName triggerName;
-
-	request.reset(tdbb, drq_e_trigger2, DYN_REQUESTS);
-
-	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-		X IN RDB$TRIGGERS
-		WITH X.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
-			 X.RDB$RELATION_NAME EQ name.object.c_str()
 	{
-		triggerName = QualifiedName(X.RDB$TRIGGER_NAME, X.RDB$SCHEMA_NAME);
-		ERASE X;
+		// Triggers must be deleted after check constraints
 
-		AutoCacheRequest request2(tdbb, drq_e_trg_prv, DYN_REQUESTS);
+		QualifiedName triggerName;
 
-		FOR(REQUEST_HANDLE request2 TRANSACTION_HANDLE transaction)
+		request.reset(tdbb, drq_e_trigger2, DYN_REQUESTS);
+
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+			X IN RDB$TRIGGERS
+			WITH X.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
+				 X.RDB$RELATION_NAME EQ name.object.c_str()
+		{
+			triggerName = QualifiedName(X.RDB$TRIGGER_NAME, X.RDB$SCHEMA_NAME);
+			ERASE X;
+
+			AutoCacheRequest request2(tdbb, drq_e_trg_prv, DYN_REQUESTS);
+
+			FOR(REQUEST_HANDLE request2 TRANSACTION_HANDLE transaction)
+				PRIV IN RDB$USER_PRIVILEGES
+				WITH PRIV.RDB$USER_SCHEMA_NAME EQ triggerName.schema.c_str() AND
+					 PRIV.RDB$USER EQ triggerName.object.c_str() AND
+					 PRIV.RDB$USER_TYPE = obj_trigger AND
+					 PRIV.RDB$GRANTOR NOT MISSING
+			{
+				ERASE PRIV;
+			}
+			END_FOR
+		}
+		END_FOR
+
+		deletePrivilegesByRelName(tdbb, transaction, name, obj_relation);
+
+		request.reset(tdbb, drq_e_view_prv, DYN_REQUESTS);
+
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 			PRIV IN RDB$USER_PRIVILEGES
-			WITH PRIV.RDB$USER_SCHEMA_NAME EQ triggerName.schema.c_str() AND
-				 PRIV.RDB$USER EQ triggerName.object.c_str() AND
-				 PRIV.RDB$USER_TYPE = obj_trigger AND
+			WITH PRIV.RDB$USER_SCHEMA_NAME EQ name.schema.c_str() AND
+				 PRIV.RDB$USER EQ name.object.c_str() AND
+				 PRIV.RDB$USER_TYPE = obj_view AND
 				 PRIV.RDB$GRANTOR NOT MISSING
 		{
 			ERASE PRIV;
 		}
 		END_FOR
+
+		// Drop table from all publications
+
+		request.reset(tdbb, drq_e_pub_tab_all, DYN_REQUESTS);
+
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+			PTAB IN RDB$PUBLICATION_TABLES
+			WITH PTAB.RDB$TABLE_SCHEMA_NAME EQ name.schema.c_str() AND
+				 PTAB.RDB$TABLE_NAME EQ name.object.c_str()
+		{
+			ERASE PTAB;
+		}
+		END_FOR
 	}
-	END_FOR
-
-	deletePrivilegesByRelName(tdbb, transaction, name, obj_relation);
-
-	request.reset(tdbb, drq_e_view_prv, DYN_REQUESTS);
-
-	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-		PRIV IN RDB$USER_PRIVILEGES
-		WITH PRIV.RDB$USER_SCHEMA_NAME EQ name.schema.c_str() AND
-			 PRIV.RDB$USER EQ name.object.c_str() AND
-			 PRIV.RDB$USER_TYPE = obj_view AND
-			 PRIV.RDB$GRANTOR NOT MISSING
-	{
-		ERASE PRIV;
-	}
-	END_FOR
-
-	// Drop table from all publications
-
-	request.reset(tdbb, drq_e_pub_tab_all, DYN_REQUESTS);
-
-	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-		PTAB IN RDB$PUBLICATION_TABLES
-		WITH PTAB.RDB$TABLE_SCHEMA_NAME EQ name.schema.c_str() AND
-			 PTAB.RDB$TABLE_NAME EQ name.object.c_str()
-	{
-		ERASE PTAB;
-	}
-	END_FOR
-	}	// FIXME: indent end
 
 	bool rolledBack = false;
 
