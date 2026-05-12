@@ -701,29 +701,13 @@ void afterDeleteRelationConstraint(thread_db* tdbb, Record* record)
 
 	if (constraintType == FOREIGN_KEY || constraintType == PRIMARY_KEY || constraintType == UNIQUE_CNSTRT)
 	{
-		static const CachedRequestId request3CacheId;
-		AutoCacheRequest request3(tdbb, request3CacheId);
-		auto* rel = MetadataCache::getPerm<Cached::Relation>(tdbb, QualifiedName(relationName, schemaName), 0);
+		// Here we use DSQL-like environment, including delete by pool
+		AutoMemoryPool p(MemoryPool::createPool());
 
-		FOR (REQUEST_HANDLE request3 TRANSACTION_HANDLE transaction)
-			IND IN RDB$INDICES
-			WITH IND.RDB$SCHEMA_NAME = schemaName.c_str() AND
-				 IND.RDB$INDEX_NAME = indexName.c_str()
-		{
-			fb_assert(rel);
-			MetaId idxId = IND.RDB$INDEX_ID - 1;
-			if (rel && rel->oldIndexVersion(tdbb, idxId, CacheFlag::OLD_DROP))
-			{
-				MODIFY IND
-					IND.RDB$INDEX_INACTIVE.NULL = FALSE;
-					IND.RDB$INDEX_INACTIVE = MET_index_deferred_drop;
-				END_MODIFY
-
-				IDX_mark_index(tdbb, rel, idxId);
-				rel->eraseIndex(tdbb, idxId);
-			}
-		}
-		END_FOR
+		ModifyIndexList indexList(*p);
+		auto* node = FB_NEW_POOL(*p) DropIndexNode(*p, QualifiedName(indexName, schemaName, ""));
+		node->drop(tdbb, nullptr, transaction, indexList);
+		indexList.exec(tdbb, transaction);
 	}
 
 	if (constraintType == NOT_NULL_CNSTRT)
