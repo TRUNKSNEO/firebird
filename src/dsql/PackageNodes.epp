@@ -1371,7 +1371,9 @@ DdlNode* CreatePackageBodyNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 					constant->makePrivate();
 					break;
 				}
+
 				default:
+					ddlNode = nullptr; // Warning
 					fb_assert(false);
 			}
 
