@@ -1049,8 +1049,6 @@ void INI_init(thread_db* tdbb)
 			format->fmt_version = formatNumber;
 			format->fmt_length = FLAG_BYTES(format->fmt_count);
 
-			relation->addFormat(format);
-
 			auto desc = format->fmt_desc.begin();
 
 			for (fld = relfld + RFLD_RPT; fld[RFLD_F_NAME]; fld += RFLD_F_LENGTH, ++desc)
@@ -1085,6 +1083,8 @@ void INI_init(thread_db* tdbb)
 				desc->dsc_address = (UCHAR*)(IPTR) format->fmt_length;
 				format->fmt_length += desc->dsc_length;
 			}
+
+			relation->addFormat(format);
 
 			if (minorVersion == dbMinorVersion)
 				currentFormat = formatNumber;
