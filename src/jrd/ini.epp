@@ -330,16 +330,20 @@ namespace
 			const size_t ownerNameLength = ownerName.length();
 			fb_assert(ownerNameLength <= MAX_UCHAR);
 
-			const UCHAR privilege = package ? priv_execute : priv_usage;
+			Vector<UCHAR, 8> NON_REL_OWNER_ACL
+				{ACL_priv_list, priv_control, priv_alter, priv_drop, priv_usage, ACL_end};
 
-			const UCHAR NON_REL_OWNER_ACL[] =
-				{ACL_priv_list, priv_control, priv_alter, priv_drop, privilege, ACL_end};
+			Vector<UCHAR, 4> NON_REL_PUBLIC_ACL
+				{ACL_priv_list, priv_usage, ACL_end};
 
-			const UCHAR NON_REL_PUBLIC_ACL[] =
-				{ACL_priv_list, privilege, ACL_end};
+			if (package)
+			{
+				NON_REL_OWNER_ACL.insert(NON_REL_OWNER_ACL.getCount() - 2, priv_execute);
+				NON_REL_PUBLIC_ACL.insert(NON_REL_PUBLIC_ACL.getCount() - 2, priv_execute);
+			}
 
 			fb_assert(sizeof(buffer) >= 8 + ownerNameLength +
-					  sizeof(NON_REL_OWNER_ACL) + sizeof(NON_REL_PUBLIC_ACL));
+					  NON_REL_OWNER_ACL.getCount() + NON_REL_PUBLIC_ACL.getCount());
 
 			UCHAR* acl = buffer;
 			*acl++ = ACL_version;
@@ -352,14 +356,14 @@ namespace
 
 			*acl++ = ACL_end;
 
-			memcpy(acl, NON_REL_OWNER_ACL, sizeof(NON_REL_OWNER_ACL));
-			acl += sizeof(NON_REL_OWNER_ACL);
+			memcpy(acl, NON_REL_OWNER_ACL.begin(), NON_REL_OWNER_ACL.getCount());
+			acl += NON_REL_OWNER_ACL.getCount();
 
 			*acl++ = ACL_id_list;
 			*acl++ = ACL_end;
 
-			memcpy(acl, NON_REL_PUBLIC_ACL, sizeof(NON_REL_PUBLIC_ACL));
-			acl += sizeof(NON_REL_PUBLIC_ACL);
+			memcpy(acl, NON_REL_PUBLIC_ACL.begin(), NON_REL_PUBLIC_ACL.getCount());
+			acl += NON_REL_PUBLIC_ACL.getCount();
 
 			*acl++ = ACL_end; // Extra terminator to avoid scl.epp:walk_acl() missing the end
 
@@ -397,14 +401,14 @@ namespace
 				break;
 
 			case obj_package_header:
-				privileges = EXEC_PRIVILEGES;
+				privileges = SYSTEM_PACKAGE_PRIVILEGES;
 				break;
 
 			default:
 				fb_assert(false);
 			}
 
-			fb_assert(privileges && privileges[0] && !privileges[1]);
+			fb_assert(privileges);
 
 			const auto userName = getOwnerName();
 			fb_assert(userName && *userName);
@@ -415,20 +419,23 @@ namespace
 
 			for (unsigned i = 0; i < FB_NELEM(users); i++)
 			{
-				STORE(REQUEST_HANDLE handle TRANSACTION_HANDLE transaction)
-					PRIV IN RDB$USER_PRIVILEGES
+				for (const char* privilege = privileges; *privilege != '\0'; ++privilege)
 				{
-					PAD(users[i], PRIV.RDB$USER);
-					PAD(SYSTEM_SCHEMA, PRIV.RDB$RELATION_SCHEMA_NAME);
-					PAD(objName, PRIV.RDB$RELATION_NAME);
-					PRIV.RDB$PRIVILEGE[0] = *privileges;
-					PRIV.RDB$PRIVILEGE[1] = 0;
-					PRIV.RDB$GRANT_OPTION = grantOptions[i];
-					PRIV.RDB$USER_TYPE = obj_user;
-					PRIV.RDB$OBJECT_TYPE = objType;
-					PRIV.RDB$GRANTOR.NULL = TRUE;
+					STORE(REQUEST_HANDLE handle TRANSACTION_HANDLE transaction)
+						PRIV IN RDB$USER_PRIVILEGES
+					{
+						PAD(users[i], PRIV.RDB$USER);
+						PAD(SYSTEM_SCHEMA, PRIV.RDB$RELATION_SCHEMA_NAME);
+						PAD(objName, PRIV.RDB$RELATION_NAME);
+						PRIV.RDB$PRIVILEGE[0] = *privilege;
+						PRIV.RDB$PRIVILEGE[1] = 0;
+						PRIV.RDB$GRANT_OPTION = grantOptions[i];
+						PRIV.RDB$USER_TYPE = obj_user;
+						PRIV.RDB$OBJECT_TYPE = objType;
+						PRIV.RDB$GRANTOR.NULL = TRUE;
+					}
+					END_STORE
 				}
-				END_STORE
 			}
 		}
 
