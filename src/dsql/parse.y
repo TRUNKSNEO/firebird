@@ -2506,7 +2506,7 @@ packaged_table_clause
 				$<createRelationNode>$ = newNode<CreateRelationNode>($1);
 				$<createRelationNode>$->tempFlag = REL_temp_ltt;
 			}
-		'(' table_elements($2) ')' ltt_subclause_opt($2) packaged_table_indexes_opt($2)
+		'(' table_elements($2) ')' [YYVALID;] ltt_subclause_opt($2) packaged_table_indexes_opt($2)
 			{
 				$$ = $2;
 			}
@@ -2526,12 +2526,12 @@ packaged_table_indexes($createRelationNode)
 
 %type packaged_table_index(<createRelationNode>)
 packaged_table_index($createRelationNode)
-	: unique_opt order_direction INDEX valid_symbol_name column_parens
+	: unique_opt order_direction INDEX valid_symbol_name [YYVALID;] column_parens
 		{
 			const auto node = newNode<CreateIndexNode>(QualifiedName(*$4));
 			node->unique = $1;
 			node->descending = $2;
-			node->columns = $5;
+			node->columns = $6;
 
 			auto clause = newNode<RelationNode::AddPackagedTableIndexClause>(node);
 			$createRelationNode->clauses.add(clause);
